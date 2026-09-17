@@ -1,0 +1,13 @@
+{
+  "name": "agent-review-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local MCP bridge that lets Codex, Claude Code and ZCode review the same plan in their own native sessions (zero npm dependencies; Node >= 22 with node:sqlite).",
+  "type": "module",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": {
+    "start": "node --no-warnings src/server.ts",
+    "check": "node --no-warnings test/run-checks.mjs",
+    "e2e:real": "node --no-warnings test/real-e2e.mjs all"
+  }
+}
