@@ -19,7 +19,7 @@
  *    the session into the desktop tasks index (best-effort, same behaviour as
  *    existing tooling) and hands out `open "zcode://workspace/open?path=..."`.
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -56,6 +56,63 @@ interface V2Provider {
 }
 
 /** Read the desktop's enabled provider (subscription account) — never logged. */
+/**
+ * ZCode 3.14+ 的 CLI 启动时按 <configRoot>/runtime/provider/<platform>/<appVersion>/endpoint-<hash>/
+ * 查找 zcode-builtin.json;宿主终端环境没有 ZCODE_APP_VERSION 时,CLI 用内部默认版本号去找,
+ * 找不到就退回 bundle 内路径(不存在)并报"无法定位 CLI ZCode Built-in Provider Config"。
+ * 因此桥在注入 provider 凭据的同时补上 appVersion:优先沿用现有 env,其次取桌面 Info.plist
+ * 版本,再校验/回退为磁盘上实际存在 active 配置的最新版本目录。
+ */
+function resolveZcodeAppVersion(): string | null {
+  const existing = process.env.ZCODE_APP_VERSION?.trim();
+  if (existing) return existing;
+  const platform = process.platform === "win32" ? "windows" : process.platform;
+  const arch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : process.arch;
+  const base = path.join(os.homedir(), ".zcode", "v2", "runtime", "provider", `${platform}-${arch}`);
+  const hasActive = (ver: string) => {
+    try {
+      for (const ep of readdirSync(path.join(base, ver))) {
+        if (existsSync(path.join(base, ver, ep, "zcode-builtin.json"))) return true;
+      }
+    } catch { /* version dir missing */ }
+    return false;
+  };
+  // 桌面 app 版本优先
+  try {
+    const plist = readFileSync("/Applications/ZCode.app/Contents/Info.plist", "utf8");
+    const m = plist.match(/CFBundleShortVersionString\s*=>\s*"?([^"\n<]+)/) ?? plist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)/);
+    const ver = m?.[1]?.trim();
+    if (ver && hasActive(ver)) return ver;
+  } catch { /* no plist → fall through */ }
+  // 回退:磁盘上存在 active 配置的最新版本目录(按 semver 粗比较)
+  try {
+    const vers = readdirSync(base).filter((v) => /^\d+\.\d+/.test(v) && hasActive(v));
+    vers.sort((a, b) => {
+      const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pb[i] ?? 0) - (pa[i] ?? 0);
+        if (d) return d;
+      }
+      return 0;
+    });
+    if (vers.length > 0) return vers[0];
+  } catch { /* no runtime dir → give up silently */ }
+  return null;
+}
+
+function findBuiltinProviderConfig(appVersion: string): string | null {
+  try {
+    const platform = process.platform === "win32" ? "windows" : process.platform;
+    const arch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : process.arch;
+    const verDir = path.join(os.homedir(), ".zcode", "v2", "runtime", "provider", `${platform}-${arch}`, appVersion);
+    for (const ep of readdirSync(verDir)) {
+      const f = path.join(verDir, ep, "zcode-builtin.json");
+      if (existsSync(f)) return f;
+    }
+  } catch { /* missing */ }
+  return null;
+}
+
 export function zcodeProviderEnv(): { env: Record<string, string>; providerId: string; modelId: string } {
   const cfgPath = path.join(os.homedir(), ".zcode", "v2", "config.json");
   let cfg: { provider?: Record<string, V2Provider> } = {};
@@ -67,15 +124,29 @@ export function zcodeProviderEnv(): { env: Record<string, string>; providerId: s
   for (const [pid, p] of Object.entries(cfg.provider ?? {})) {
     if (p?.enabled && p.options?.baseURL && p.options?.apiKey) {
       const modelId = Object.keys(p.models ?? {})[0] ?? "GLM-5.3";
-      return {
-        env: {
-          ZCODE_MODEL: modelId,
-          ZCODE_BASE_URL: p.options.baseURL,
-          ANTHROPIC_API_KEY: p.options.apiKey,
-        },
-        providerId: pid,
-        modelId,
+      const env: Record<string, string> = {
+        ZCODE_MODEL: modelId,
+        ZCODE_BASE_URL: p.options.baseURL,
+        ANTHROPIC_API_KEY: p.options.apiKey,
       };
+      const appVersion = resolveZcodeAppVersion();
+      if (appVersion) env.ZCODE_APP_VERSION = appVersion;
+      // ZCode 3.14+ 的 CLI 在无桌面 env 的终端里启动时,会因找不到内置 provider 配置而直接报
+      // "无法定位 CLI ZCode Built-in Provider Config"。桌面进程靠这两个 env 指到实际文件;
+      // 桥为干净环境补齐(沿用已有值;否则解析磁盘上的 active 文件)。
+      const personal = path.join(os.homedir(), ".zcode", "v2", "provider_config.json");
+      if (process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE?.trim()) {
+        env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE = process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE.trim();
+      } else if (existsSync(personal)) {
+        env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE = personal;
+      }
+      if (process.env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE?.trim()) {
+        env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE = process.env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE.trim();
+      } else if (appVersion) {
+        const builtin = findBuiltinProviderConfig(appVersion);
+        if (builtin) env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE = builtin;
+      }
+      return { env, providerId: pid, modelId };
     }
   }
   throw new Error("~/.zcode/v2/config.json 中没有启用的 provider（请在 ZCode 桌面应用确认已登录订阅）。");
