@@ -63,6 +63,9 @@ bash ~/agent-review-bridge/hosts/install.sh        # 自动找 Node、注册三�
 | "给我打开 Codex 评审会话的命令" | 返回原生恢复入口(codex/claude 为终端命令,ZCode 为桌面入口) |
 | "我看完了,继续" | 解除手动接管,继续原会话 |
 | "停止讨论" | 停止派发并取消在途请求 |
+| "让 GPT 直接跟我的 ZCode 会话 xxx 讨论"(给原生会话 ID) | 导入该会话为参与者(`native_session_id`),后续轮次直接在它上面续聊 |
+
+**导入已有会话的注意**：被导入的会话**当前不能正被对应工具打开**——ZCode/各工具"打开即持有"，持有时桥的 resume 会被拒（zcode 报 `Model creation failed`,桥的失败信息会带此提示）。用法是"乒乓式"：你想看时打开桌面看完就关上，桥的下一轮才能写入；开着围看实时刷新当前版本做不到。
 
 四个 MCP 工具:`agent_invite`(邀请) / `agent_continue`(同会话续聊) / `agent_result`(有界等待取结果,默认 25s 窗口,pending 就用同一 request_id 续等) / `agent_session`(info / handoff / release / cancel)。完整主持规则见 [hosts/HOST_INSTRUCTIONS.md](hosts/HOST_INSTRUCTIONS.md)——建议加入项目的 `AGENTS.md`/`CLAUDE.md`。
 

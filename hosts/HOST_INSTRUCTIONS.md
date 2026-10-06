@@ -14,6 +14,7 @@
 | `agent_session(participant_id, action)` | `info` / `handoff` / `release` / `cancel` |
 
 - `workspace` 必须是你**当前实际使用的绝对项目目录**;无法确定时先问用户,不要猜另一个项目。
+- 用户给出一个**原生会话 ID** 要求"直接跟这个会话讨论"时,用 `agent_invite` 的 `native_session_id` 参数导入(首次任务会直接发到该会话)。注意:该会话不能正被用户在对应工具里打开("打开即持有",持有时桥会被拒并提示);提醒用户看完窗口要关掉再让你继续。
 - 同一讨论里重复邀请同种工具会返回已有参与者——之后一律用 `agent_continue`。
 - **等待结果**:调用 `agent_result(request_id)`,默认窗口 25 秒(适配 ZCode 桌面 30s 的 MCP 调用硬超时)。返回 `pending` 就用**同一 request_id** 再调一次——这是正常循环,不是失败,**不要重新邀请**;宿主允许更长调用时可给 `wait_seconds=600` 减少循环次数。
 - 多个参与者同时在途时,在同一条回复里**并行调用**多个 `agent_result`,一起等,不要串行逐个等。

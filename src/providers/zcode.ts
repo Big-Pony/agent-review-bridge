@@ -116,9 +116,12 @@ export function zcodeOutcome(stdout: string, stderr: string, code: number | null
       if (code === 0 && typeof d.response === "string" && d.response.length > 0) {
         return { ok: true, answer: d.response, nativeSessionId: d.sessionId };
       }
-      const reason = typeof d.error === "string" && d.error
+      let reason = typeof d.error === "string" && d.error
         ? d.error
         : code === 0 ? "zcode 返回了空的最终答复" : `zcode 退出码 ${code}`;
+      if (/model creation failed/i.test(reason)) {
+        reason += "(常见原因:该会话正在 ZCode 桌面/其他窗口中打开而被持有。请关闭该会话窗口后重试本轮。)";
+      }
       return { ok: false, answer: null, nativeSessionId: d.sessionId, error: reason };
     }
   }

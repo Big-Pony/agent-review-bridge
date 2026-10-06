@@ -260,6 +260,12 @@ const ghostAfter = await call("agent_continue", { participant_id: ghost.particip
 check("清理后可继续", ghostAfter.status === "running");
 await call("agent_result", { request_id: ghostAfter.request_id, wait_seconds: 25 });
 
+console.log("== 导入已有会话(adopt) ==");
+const adoptInv = await call("agent_invite", { agent: "codex", workspace: ws, prompt: "#ARBSTUB sid=stub-adopt-9\n对导入会话的首轮任务。", native_session_id: "stub-adopted-session-1" });
+check("adopt 返回已登记的原生 ID", adoptInv.adopted === true && adoptInv.native_session_id === "stub-adopted-session-1" && adoptInv.status === "running", JSON.stringify(adoptInv).slice(0, 200));
+const adoptRes = await call("agent_result", { request_id: adoptInv.request_id, wait_seconds: 20 });
+check("adopt 首轮在导入会话上执行(resume 路径)", adoptRes.status === "completed" && adoptRes.answer.includes("续聊:stub-adopted-session-1"), JSON.stringify(adoptRes).slice(0, 200));
+
 console.log("== zcode 接续与 handoff 形态 ==");
 const zinv = await call("agent_invite", { agent: "zcode", workspace: ws, prompt: "zcode 首轮任务。" });
 const zres = await call("agent_result", { request_id: zinv.request_id, wait_seconds: 20 });

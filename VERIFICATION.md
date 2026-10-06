@@ -69,3 +69,5 @@ ZCode 组件记录:评估了 `william0wang/zcode-acp` v0.37.1 源码(仅作协�
 - 2026-09-13(修复):首次真实使用(ZCode 桌面宿主)暴露 GUI 启动无用户 PATH——`spawn("codex")` ENOENT。新增 `src/providers/resolve.ts`(env 覆盖 → PATH → 已知安装位:~/.local/bin、~/.codex/packages/standalone、~/.local/share/claude/versions、Homebrew、ChatGPT.app bundle),codex/claude 接入;runner 对 spawn 失败给出含修正指引的错误。在 `env -i PATH=/usr/bin:/bin` 模拟 GUI 环境下 codex/claude 真实链路各 5/5 复测通过;stub 36/36 回归通过。
 
 - 2026-09-13(等待体验):① `agent_result` 支持桥侧长等待+MCP progress 保活(上限 900s);② 实测 ZCode 桌面对 MCP 调用有 30s 硬超时(单次 wait=180 被掐断并报 timeout),故默认窗口改为 25s,主持说明改为"pending 循环+长等待可选";③ 评估过"完成后主动推送":MCP 协议下服务器无法向宿主模型注入消息,sampling/elicitation 三家支持不一,均未采用(按用户决定,也不做 macOS 系统通知);等待由主持人的 pending 循环承担。stub 检查 38/38。
+
+- 2026-09-13(导入已有会话):`agent_invite` 新增 `native_session_id`(adopt)——把用户已有的原生会话登记为参与者,首轮直接在其上执行。实测:未被持有时 zcode 会话导入+首轮+上下文保留通过;**持有锁实测**:会话被另一后端进程(含桌面)打开时,外部 CLI/桥 resume 报 `Model creation failed`(桥的错误信息带关闭窗口提示)——"桌面开着围观+桥实时写入"在当前 ZCode 实现下不可行,采用乒乓式(看时关桥派发,派发时关窗口)。stub 40/40。

@@ -65,6 +65,7 @@ const TOOL_DEFS = [
         workspace: { type: "string", description: "绝对项目目录(讨论绑定的实际工作区)" },
         prompt: { type: "string", description: "首轮任务全文(含目标、材料、约束、背景)" },
         discussion_id: { type: "string", description: "加入已有讨论时提供" },
+        native_session_id: { type: "string", description: "导入模式:使用一个已存在的原生会话 ID(zcode 为 sess_...,codex/claude 为 UUID)作为参与者,首轮任务直接发到该会话。该会话当前不能正被对应工具打开(否则会被持有锁拒绝)" },
       },
       required: ["agent", "workspace", "prompt"],
     },
@@ -219,6 +220,13 @@ async function handleInvite(params: any) {
     };
   }
   const participant = createParticipant(discussionId, agent, ws);
+  const adoptId = typeof params?.native_session_id === "string" ? params.native_session_id.trim() : "";
+  if (adoptId) {
+    // 导入已有会话:登记为参与者并直接在该会话上执行首轮(continue 路径 = resume 该 ID)
+    updateParticipant(participant.id, { native_session_id: adoptId, title: "导入的原生会话" });
+    const started = startRound(participant, "continue", prompt);
+    return { discussion_id: discussionId, adopted: true, native_session_id: adoptId, ...started };
+  }
   const started = startRound(participant, "create", prompt);
   return { discussion_id: discussionId, ...started };
 }
