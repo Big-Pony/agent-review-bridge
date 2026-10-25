@@ -26,10 +26,32 @@ import path from "node:path";
 
 const SANDBOX_MODE = () => (inviteePermissions() === "readonly" ? "read-only" : "danger-full-access");
 
-export function codexPrepare(spec: ExecSpec): { command: string; args: string[]; cwd: string; stdin: string } {
+/** codex 模型统一为 gpt-6-astra(用户决定 2026-10-25:config.toml 可能配着账户不支持的模型,
+ *  且 exec resume 会沿用会话残留模型;显式指定避免两者)。ARB_CODEX_MODEL 可覆盖;
+ *  effort 读 ARB_CODEX_EFFORT 或 config.toml(缺省不传)。 */
+export function codexModelOverrides(): { model?: string; effort?: string } {
+  const out: { model?: string; effort?: string } = {};
+  out.model = process.env.ARB_CODEX_MODEL?.trim() || "gpt-6-astra";
+  if (process.env.ARB_CODEX_EFFORT?.trim()) out.effort = process.env.ARB_CODEX_EFFORT.trim();
+  if (out.effort) return out;
+  try {
+    const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+    for (const line of readFileSync(path.join(codexHome, "config.toml"), "utf8").split("\n")) {
+      const e = line.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/);
+      if (e && !out.effort) out.effort = e[1];
+    }
+  } catch { /* effort 读取失败 → 不指定 */ }
+  return out;
+}
+
+export function codexPrepare(spec: ExecSpec, opts?: { noModelOverride?: boolean }): { command: string; args: string[]; cwd: string; stdin: string } {
   const bin = resolveCliBin("codex", spec.bin);
   if (!bin) throw new Error(NOT_FOUND);
   const disable = `mcp_servers.${spec.bridgeServerName}={command="${spec.bridgeCommand}",args=["${spec.bridgeServerArg}"],enabled=false}`;
+  const mo = opts?.noModelOverride ? {} : codexModelOverrides();
+  const modelArgs: string[] = [];
+  if (mo.model) modelArgs.push("-m", mo.model);
+  if (mo.effort) modelArgs.push("-c", `model_reasoning_effort="${mo.effort}"`);
   if (spec.nativeSessionId) {
     return {
       command: bin,
@@ -38,6 +60,7 @@ export function codexPrepare(spec: ExecSpec): { command: string; args: string[];
         "--json",
         "-c", `sandbox_mode="${SANDBOX_MODE()}"`,
         "-c", disable,
+        ...modelArgs,
         "--skip-git-repo-check",
         "-",
       ],
@@ -53,6 +76,7 @@ export function codexPrepare(spec: ExecSpec): { command: string; args: string[];
       "-C", spec.workspace,
       "--skip-git-repo-check",
       "-c", disable,
+      ...modelArgs,
       "-",
     ],
     cwd: spec.workspace,
@@ -74,9 +98,12 @@ export function codexOutcome(stdout: string, _stderr: string, code: number | nul
       messages.push(e.item.text);
     } else if (e.type === "turn.failed") {
       failure = e.error?.message ?? "turn failed";
-    } else if (e.type === "error" && typeof e.message === "string") {
-      // Reconnect/transient notices are informational; remember the last one.
-      if (!/reconnecting/i.test(e.message)) failure = e.message;
+    } else if (e.type === "error") {
+      // 两种形态:顶层 message(如 Reconnecting...)与嵌套 error.message/error.code(如 400 model_not_found)
+      const msg = typeof e.message === "string" ? e.message : (typeof e.error?.message === "string" ? e.error.message : "");
+      const errCode = typeof e.error?.code === "string" ? e.error.code : "";
+      if (msg && !/reconnecting/i.test(msg)) failure = msg;
+      else if (!msg && errCode) failure = errCode;
     }
   }
   const answer = messages.length > 0 ? messages[messages.length - 1] : null;
@@ -85,7 +112,7 @@ export function codexOutcome(stdout: string, _stderr: string, code: number | nul
     ?? (answer != null ? `codex exited with code ${code} after producing a message` : `codex exited with code ${code} without a final agent message`)
     ?? "codex failed";
   // 提交无法确认完成时由 runner 标记 interrupted；此处只描述失败。
-  return { ok: false, answer, nativeSessionId, error: reason };
+  return { ok: false, answer, nativeSessionId, error: reason, modelRejected: /model_not_found|model is not supported/i.test(`${failure ?? ""} ${reason}`) };
 }
 
 export function codexHandoff(p: { workspace: string; nativeSessionId: string }): HandoffEntry {

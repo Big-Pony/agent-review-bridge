@@ -150,14 +150,43 @@ async function main(): Promise<void> {
     backend.stdin!.end();
   }
 
-  const code = await exited;
+  let code = await exited;
   if (terminating) return; // SIGTERM path already wrote 'cancelled'
   log(`runner: backend exited code=${code} stdout=${stdout.length}B stderr=${stderr.length}B`);
 
-  const outcome =
+  let outcome =
     participant.agent === "codex" ? codexOutcome(stdout, stderr, code)
     : participant.agent === "claude" ? claudeOutcome(stdout, stderr, code)
     : zcodeOutcome(stdout, stderr, code);
+
+  // codex: 指定的模型被账户拒绝(model_not_found)→ 去掉显式模型/effort 覆盖重试一次,
+  // 退到 codex 内置默认模型(账户必定可用)。会话残留模型与当前账户不兼容时靠这步恢复。
+  if (participant.agent === "codex" && !outcome.ok && (outcome as any).modelRejected) {
+    log(`runner: model rejected (${outcome.error}); retrying once without model override`);
+    const retryPrepared = codexPrepare(
+      { bin: process.env.ARB_CODEX_BIN, workspace: participant.workspace, prompt, nativeSessionId: mode === "continue" ? participant.native_session_id : null, bridgeServerName: BRIDGE_SERVER_NAME, bridgeCommand: BRIDGE_COMMAND, bridgeServerArg: BRIDGE_ARG0 },
+      { noModelOverride: true },
+    );
+    outcome = await new Promise<ReturnType<typeof codexOutcome>>((resolve) => {
+      let so = "", se = "";
+      const child = spawn(retryPrepared.command, retryPrepared.args, {
+        cwd: retryPrepared.cwd, env: { ...process.env }, detached: true, stdio: ["pipe", "pipe", "pipe"],
+      });
+      child.stdout!.on("data", (d: Buffer) => { so += d.toString(); });
+      child.stderr!.on("data", (d: Buffer) => { se += d.toString(); });
+      child.on("error", (err: NodeJS.ErrnoException) => resolve({ ok: false, answer: null, nativeSessionId: null, error: `重试失败: ${err.message}` }));
+      child.on("exit", (c2) => {
+        log(`runner: retry exited code=${c2} stdout=${so.length}B`);
+        const o2 = codexOutcome(so, se, c2);
+        if (o2.ok) o2.error = undefined;
+        resolve(o2);
+      });
+      child.stdin!.write(retryPrepared.stdin ?? "");
+      child.stdin!.end();
+    });
+    if (outcome.ok) outcome.error = undefined;
+    log(`runner: retry outcome ok=${outcome.ok}${outcome.ok ? "" : " err=" + outcome.error}`);
+  }
 
   if (outcome.nativeSessionId) {
     recordNativeSessionId(requestId, outcome.nativeSessionId);

@@ -34,6 +34,17 @@ SNIP="$(printf '%s' "$FLAT" | tr '\n' ' ' | cut -c1-60)"
 emit "{\"type\":\"thread.started\",\"thread_id\":\"$SID\"}"
 
 case "$FLAT" in
+  *" rejectmodel"*)
+    # 模拟账户不支持指定模型:仅当显式传了 -m 时拒绝;无 -m(回退重试)则成功
+    for a in "$@"; do
+      if [ "$a" = "-m" ]; then
+        emit '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'stub-model'"'"' model is not supported when using Codex with a ChatGPT account.","code":"model_not_found"}}'
+        exit 1
+      fi
+    done ;;
+esac
+
+case "$FLAT" in
   *"#ARBSTUB fail"*)
     emit '{"type":"turn.failed","error":{"message":"stub 额度不足/执行失败"}}'
     exit 1 ;;

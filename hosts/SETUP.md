@@ -88,6 +88,8 @@ ZCode 桌面版不把 CLI 放进 PATH;桥直接使用应用内置入口
 | `ARB_MAX_INLINE_BYTES` | 65536 | 超过该大小的答复改为文件交付 |
 | `ARB_CODEX_BIN` / `ARB_CLAUDE_BIN` / `ARB_ZCODE_CLI` / `ARB_ZCODE_NODE` | 自动发现 | 各后端入口覆盖 |
 | `ARB_INVITEE_PERMISSIONS` | `max` | 被邀请者权限:默认最大权限(避免权限确认导致的中断/等待);设 `readonly` 恢复只读评审模式 |
+| `ARB_CODEX_MODEL` | `gpt-6-astra` | 被邀请 codex 统一使用的模型(用户决定;避免 config/会话残留的账户不兼容模型);设 `auto` 则改读 `~/.codex/config.toml` 的 model |
+| `ARB_CODEX_EFFORT` | config 的 model_reasoning_effort | 被邀请 codex 的推理档覆盖 |
 | `ARB_REQUIRE_CLAUDE_SUBSCRIPTION` | 未设置 | 默认放行本机 Claude 的 API 路由配置(用户决定);设 `1` 恢复"仅订阅登录"严格模式(检测到路由即拒绝并说明) |
 | `ARB_MCP_SERVER_NAME` | `agent_review_bridge` | 桥在各宿主注册的服务器名(用于被邀请会话的自我禁用) |
 

@@ -260,6 +260,11 @@ const ghostAfter = await call("agent_continue", { participant_id: ghost.particip
 check("清理后可继续", ghostAfter.status === "running");
 await call("agent_result", { request_id: ghostAfter.request_id, wait_seconds: 25 });
 
+console.log("== codex 模型被拒自动回退 ==");
+const mrInv = await call("agent_invite", { agent: "codex", workspace: ws, prompt: "#ARBSTUB sid=stub-model-1 rejectmodel\n任务。" });
+const mrRes = await call("agent_result", { request_id: mrInv.request_id, wait_seconds: 25 });
+check("模型 400 后自动回退重试成功", mrRes.status === "completed" && mrRes.answer.includes("最终答复"), JSON.stringify(mrRes).slice(0, 200));
+
 console.log("== 导入已有会话(adopt) ==");
 const adoptInv = await call("agent_invite", { agent: "codex", workspace: ws, prompt: "#ARBSTUB sid=stub-adopt-9\n对导入会话的首轮任务。", native_session_id: "stub-adopted-session-1" });
 check("adopt 返回已登记的原生 ID", adoptInv.adopted === true && adoptInv.native_session_id === "stub-adopted-session-1" && adoptInv.status === "running", JSON.stringify(adoptInv).slice(0, 200));
